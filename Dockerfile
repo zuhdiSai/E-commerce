@@ -1,64 +1,87 @@
-# Stage 1: Build Frontend Assets
-FROM node:20-alpine AS frontend
+# ==========================================
+# Stage 1: Install PHP Dependencies
+# ==========================================
+FROM composer:2.7 AS php_builder
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
+
+# ==========================================
+# Stage 2: Build Frontend Assets (React/Vite)
+# ==========================================
+# Menggunakan base php:8.3-cli (Debian-based) agar PHP tersedia untuk Vite plugin
+FROM php:8.3-cli AS frontend_builder
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs zip unzip
+
 WORKDIR /app
 
-# Install dependencies first for better caching
-COPY package.json package-lock.json* ./
+# Copy dependency PHP dari stage sebelumnya (dibutuhkan oleh artisan wayfinder:generate)
+COPY --from=php_builder /app/vendor ./vendor
+
+# Copy file konfigurasi core Laravel yang dibutuhkan oleh Artisan
+COPY artisan ./
+COPY bootstrap/ bootstrap/
+COPY config/ config/
+COPY routes/ routes/
+COPY app/ app/
+
+# Copy file dependency frontend dan install
+COPY package.json package-lock.json vite.config.js ./
 RUN npm ci
 
-# Copy the rest of the application and build
-COPY . .
+# Copy resource dan build
+COPY resources/ resources/
+COPY public/ public/
 RUN npm run build
 
-# Stage 2: Build Backend & Setup Server
-FROM php:8.3-fpm-alpine
+# ==========================================
+# Stage 3: Production Server (PHP 8.3 + Apache)
+# ==========================================
+FROM php:8.3-apache
 
-# Install system dependencies & Nginx
-RUN apk add --no-cache \
-    nginx \
+# Menggunakan apt-get untuk menginstal library OS pendukung
+RUN apt-get update && apt-get install -y \
     libpng-dev \
-    libjpeg-turbo-dev \
-    freetype-dev \
+    libonig-dev \
+    libxml2-dev \
     zip \
-    libzip-dev \
-    sqlite-dev \
     unzip \
-    curl \
-    git \
-    supervisor \
-    gettext \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql pdo_sqlite zip gd bcmath
+    libpq-dev \
+    && docker-php-ext-install pdo_pgsql pdo_mysql mbstring pcntl bcmath gd \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+# Aktifkan modul mod_rewrite Apache untuk routing Laravel
+RUN a2enmod rewrite
+
+# Arahkan DocumentRoot Apache langsung ke folder /public Laravel
+ENV APACHE_DOCUMENT_ROOT /var/www/html/public
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
+RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/conf-available/*.conf
+
+# Railway menggunakan PORT environment variable secara dinamis
+# Kita harus mengganti port 80 dengan $PORT pada konfigurasi Apache
+RUN sed -i 's/Listen 80/Listen ${PORT}/g' /etc/apache2/ports.conf
+RUN sed -i 's/:80/:${PORT}/g' /etc/apache2/sites-available/000-default.conf
 
 WORKDIR /var/www/html
 
-# Copy Laravel files
+# Copy seluruh kode sumber Laravel
 COPY . .
 
-# Copy frontend build from Stage 1
-COPY --from=frontend /app/public/build ./public/build
+# Ambil hasil dari stage sebelumnya (vendor PHP dan build aset React)
+COPY --from=php_builder /app/vendor /var/www/html/vendor
+COPY --from=frontend_builder /app/public/build /var/www/html/public/build
 
-# Install PHP dependencies (production)
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# Atur permission direktori yang membutuhkan akses tulis (write)
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
+    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# Configure Nginx & PHP-FPM
-COPY nginx.conf.template /etc/nginx/nginx.conf.template
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Set Permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 775 /var/www/html/storage \
-    && chmod -R 775 /var/www/html/bootstrap/cache \
-    # Allow nginx to write to its necessary directories when run as non-root (if needed)
-    && chown -R www-data:www-data /var/lib/nginx \
-    && chown -R www-data:www-data /var/log/nginx
-
-# Railway exposes the port dynamically
-ENV PORT=8080
 EXPOSE ${PORT}
 
 ENTRYPOINT ["docker-entrypoint.sh"]

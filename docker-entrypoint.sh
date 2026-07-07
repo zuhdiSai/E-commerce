@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 echo "Starting deployment scripts..."
 
@@ -15,13 +15,6 @@ php artisan migrate --force
 echo "Linking storage..."
 php artisan storage:link
 
-# Substitute dynamic Railway port into Nginx configuration
-envsubst '${PORT}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
-
-# Start php-fpm in the background
-echo "Starting PHP-FPM..."
-php-fpm -D
-
-# Start nginx in the foreground
-echo "Starting Nginx..."
-nginx -g "daemon off;"
+# Start Apache in the foreground
+echo "Starting Apache..."
+exec apache2-foreground
