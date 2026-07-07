@@ -51,7 +51,10 @@ RUN apt-get update && apt-get install -y \
     unzip \
     libpq-dev \
     libzip-dev \
-    && docker-php-ext-install pdo_pgsql pdo_mysql mbstring pcntl bcmath gd zip \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install pdo_pgsql pdo_mysql mbstring pcntl bcmath zip gd \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Aktifkan modul mod_rewrite Apache untuk routing Laravel
