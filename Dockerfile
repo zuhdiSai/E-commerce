@@ -29,7 +29,7 @@ COPY routes/ routes/
 COPY app/ app/
 
 # Copy file dependency frontend dan install
-COPY package.json package-lock.json vite.config.js ./
+COPY package.json package-lock.json vite.config.ts ./
 RUN npm ci
 
 # Copy resource dan build
