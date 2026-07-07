@@ -2,12 +2,24 @@
 FROM node:20-alpine AS frontend
 WORKDIR /app
 
-# Install dependencies first for better caching
+# Install PHP so @laravel/vite-plugin-wayfinder can run php artisan
+RUN apk add --no-cache php83 php83-phar php83-mbstring php83-openssl php83-tokenizer php83-xml php83-ctype php83-session php83-fileinfo php83-dom php83-xmlwriter \
+    && ln -sf /usr/bin/php83 /usr/bin/php
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Install Node dependencies first for better caching
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Copy the rest of the application and build
+# Copy the rest of the application
 COPY . .
+
+# Install PHP dependencies needed by artisan
+RUN composer install --no-dev --no-interaction --optimize-autoloader
+
+# Build frontend assets (wayfinder plugin needs php artisan)
 RUN npm run build
 
 # Stage 2: Build Backend & Setup Server
