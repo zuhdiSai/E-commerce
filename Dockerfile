@@ -4,7 +4,7 @@
 FROM composer:2.7 AS php_builder
 WORKDIR /app
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
+RUN COMPOSER_MEMORY_LIMIT=-1 composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
 # ==========================================
 # Stage 2: Build Frontend Assets (React/Vite)
@@ -50,7 +50,8 @@ RUN apt-get update && apt-get install -y \
     zip \
     unzip \
     libpq-dev \
-    && docker-php-ext-install pdo_pgsql pdo_mysql mbstring pcntl bcmath gd \
+    libzip-dev \
+    && docker-php-ext-install pdo_pgsql pdo_mysql mbstring pcntl bcmath gd zip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Aktifkan modul mod_rewrite Apache untuk routing Laravel
